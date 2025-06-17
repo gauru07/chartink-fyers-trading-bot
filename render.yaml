@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: chartink-fyers-trading-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn chartink-fyers-backend.main:app --host 0.0.0.0 --port 10000
