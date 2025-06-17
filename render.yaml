@@ -3,7 +3,7 @@ services:
     name: trading-bot-backend
     env: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn chartink-fyers-backend.main:app --host 0.0.0.0 --port 10000"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port 10000"
 
   - type: web
     name: trading-bot-frontend
