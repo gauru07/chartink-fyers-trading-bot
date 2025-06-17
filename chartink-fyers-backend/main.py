@@ -1,92 +1,93 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from fyers_client import place_order, get_ltp, get_candles
 from datetime import datetime
-import sqlite3
-from dotenv import load_dotenv
-import os
-from fyers_client import get_ltp, place_order
 
-load_dotenv()
-DB_FILE = "alerts.db"
-conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-cursor = conn.cursor()
 app = FastAPI()
 
+# Allow frontend connection
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Chartink alert format
 class ChartinkAlert(BaseModel):
     stocks: str
     trigger_prices: float
     side: str
     timestamp: str
     alert_id: str
+    capital: float
+    buffer: float
+    risk_reward: float
+    type: int  # 1 = Limit, 2 = Market
 
 @app.post("/api/chartink-alert")
-async def receive_alert(alert: ChartinkAlert, background_tasks: BackgroundTasks):
-    try:
-        cursor.execute("INSERT INTO alerts VALUES (?, ?, ?, ?, ?, ?)", (
-            alert.alert_id,
-            alert.stocks.upper(),
-            alert.trigger_prices,
-            alert.side.lower(),
-            alert.timestamp,
-            "PENDING"
-        ))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        return {"status": "duplicate", "id": alert.alert_id}
+def receive_alert(alert: ChartinkAlert):
+    symbol = f"NSE:{alert.stocks.upper()}-EQ"
+    candles = get_candles(symbol)
 
-    background_tasks.add_task(process_alert, alert.alert_id)
-    return {"status": "received", "id": alert.alert_id}
+    if len(candles) < 2:
+        return {"error": "Not enough candles"}
 
-def process_alert(alert_id):
-    cursor.execute("SELECT stock, trigger_price, side FROM alerts WHERE alert_id=?", (alert_id,))
+    [_, o1, h1, l1, c1, _] = candles[0]  # First candle
+    [_, o2, h2, l2, c2, _] = candles[1]  # Second candle
 
-    row = cursor.fetchone()
-    if not row:
-        return
-    symbol, price, side = row
-    fyers_symbol = f"NSE:{symbol}-EQ"
-    qty = 100
-    sl_buffer = 0.02
-    tp_buffer = 0.05
-
-    if side == "long":
-        stop_loss = round(price * (1 - sl_buffer), 2)
-        take_profit = round(price * (1 + tp_buffer), 2)
-        side_val = 1
+    if alert.side == "long":
+        buffer_val = (h1 - o1) * alert.buffer
+        entry_price = h1 + buffer_val
+        stoploss = h1 if alert.type == 2 else c2
+        target = entry_price + (entry_price - stoploss) * alert.risk_reward
     else:
-        stop_loss = round(price * (1 + sl_buffer), 2)
-        take_profit = round(price * (1 - tp_buffer), 2)
-        side_val = -1
+        buffer_val = (o1 - l1) * alert.buffer
+        entry_price = l1 - buffer_val
+        stoploss = l1 if alert.type == 2 else c2
+        target = entry_price - (stoploss - entry_price) * alert.risk_reward
 
-    ltp = get_ltp(fyers_symbol)
-    if not ltp or abs(ltp - price) > 2.0:
-        return
+    risk_per_trade = alert.capital * 0.01
+    qty = max(1, int(risk_per_trade / abs(entry_price - stoploss)))
 
-    payload = {
-        "symbol": fyers_symbol,
+    # 1. Place Market Order
+    market_payload = {
+        "symbol": symbol,
         "qty": qty,
-        "type": 1,
-        "side": side_val,
+        "side": 1 if alert.side == "long" else -1,
+        "type": 2,
         "productType": "INTRADAY",
-        "limitPrice": price,
-        "stopLoss": stop_loss,
-        "takeProfit": take_profit,
         "validity": "DAY",
-        "offlineOrder": False
+        "offlineOrder": False,
+        "stopLoss": round(stoploss, 2),
+        "takeProfit": round(target, 2)
     }
+    market_response = place_order(market_payload)
 
-    response = place_order(payload)
-    fy_order_id = response.get("id", "")
-    status = response.get("s", "error")
+    # 2. Place Limit Order
+    limit_payload = {
+        "symbol": symbol,
+        "qty": qty,
+        "side": 1 if alert.side == "long" else -1,
+        "type": 1,
+        "productType": "INTRADAY",
+        "validity": "DAY",
+        "offlineOrder": False,
+        "limitPrice": round(entry_price, 2),
+        "stopLoss": round(stoploss, 2),
+        "takeProfit": round(target, 2)
+    }
+    limit_response = place_order(limit_payload)
 
-    cursor.execute("""
-        INSERT INTO orders (alert_id, fy_order_id, order_type, qty, price, sl, tp, status, time_placed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            alert_id, fy_order_id, "LIMIT", qty, price,
-            stop_loss, take_profit, status,
-            datetime.utcnow().isoformat()
-        )
-    )
-    cursor.execute("UPDATE alerts SET status=? WHERE id=?", (status, alert_id))
-    conn.commit()
+    return {
+        "status": "success",
+        "market_order_id": market_response.get("id"),
+        "limit_order_id": limit_response.get("id"),
+        "entry": round(entry_price, 2),
+        "sl": round(stoploss, 2),
+        "tp": round(target, 2),
+        "qty": qty,
+        "time": datetime.utcnow().isoformat()
+    }

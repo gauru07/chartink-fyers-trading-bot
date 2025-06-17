@@ -1,22 +1,20 @@
-from fyers_apiv3 import fyersModel
-from dotenv import load_dotenv
-import os
+from datetime import datetime
 
-load_dotenv()
-client_id = os.getenv("FYERS_APP_ID")
-access_token = os.getenv("FYERS_ACCESS_TOKEN")
+# Dummy order function – replace with FYERS SDK/API call
+def place_order(order_payload: dict):
+    print("ORDER PLACED:", order_payload)
+    return {
+        "s": "ok",
+        "id": f"ORD-{int(datetime.now().timestamp())}"
+    }
 
-fyers = fyersModel.FyersModel(client_id=client_id, token=access_token)
+# Dummy latest price – can be improved to fetch LTP
+def get_ltp(symbol: str):
+    return 735.0  # Placeholder value
 
-def get_ltp(symbol):
-    try:
-        res = fyers.quotes({"symbols": symbol})
-        return res['d'][0]['v']['lp']
-    except:
-        return None
-
-def place_order(payload):
-    try:
-        return fyers.place_order(payload)
-    except Exception as e:
-        return {"s": "error", "message": str(e)}
+# Dummy 5-minute candle data – replace with FYERS candle API later
+def get_candles(symbol: str):
+    return [
+        [1718702400, 730, 735, 728, 731, 100000],  # Candle 1
+        [1718702700, 731, 736, 730, 735, 105000],  # Candle 2
+    ]
