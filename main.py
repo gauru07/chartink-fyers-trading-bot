@@ -6,16 +6,20 @@ from datetime import datetime
 
 app = FastAPI()
 
-# Allow frontend connection
+# ✅ CORS fix to allow frontend from Render
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "*",  # You can replace this with just the frontend URL for better security
+        "https://chartink-fyers-trading-bot-frontend.onrender.com",
+        "http://localhost:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Chartink alert format
+# ✅ Chartink alert structure
 class ChartinkAlert(BaseModel):
     stocks: str
     trigger_prices: float
@@ -52,7 +56,7 @@ def receive_alert(alert: ChartinkAlert):
     risk_per_trade = alert.capital * 0.01
     qty = max(1, int(risk_per_trade / abs(entry_price - stoploss)))
 
-    # 1. Place Market Order
+    # ✅ Market Order
     market_payload = {
         "symbol": symbol,
         "qty": qty,
@@ -66,7 +70,7 @@ def receive_alert(alert: ChartinkAlert):
     }
     market_response = place_order(market_payload)
 
-    # 2. Place Limit Order
+    # ✅ Limit Order
     limit_payload = {
         "symbol": symbol,
         "qty": qty,
