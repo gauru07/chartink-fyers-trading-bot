@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fyers_client import place_order, get_ltp, get_candles
 from datetime import datetime
+from typing import Optional
 
 app = FastAPI()
 
@@ -10,7 +11,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "*",  # You can replace this with just the frontend URL for better security
+        "*",
         "https://chartink-fyers-trading-bot-frontend.onrender.com",
         "http://localhost:5173"
     ],
@@ -21,19 +22,22 @@ app.add_middleware(
 
 # ✅ Chartink alert structure
 class ChartinkAlert(BaseModel):
-    stocks: str
-    trigger_prices: float
-    side: str
+    symbol: str
+    price: float
     timestamp: str
     alert_id: str
-    capital: float
-    buffer: float
-    risk_reward: float
-    type: int  # 1 = Limit, 2 = Market
+    capital: Optional[float] = 100000
+    buffer: Optional[float] = 0.09
+    risk_reward: Optional[float] = 1.5
+    type: Optional[int] = 2  # 1 = Limit, 2 = Market
+    side: Optional[str] = "long"
+    enable_instant: Optional[bool] = True
+    enable_stoplimit: Optional[bool] = True
+    enable_lockprofit: Optional[bool] = False
 
 @app.post("/api/chartink-alert")
 def receive_alert(alert: ChartinkAlert):
-    symbol = f"NSE:{alert.stocks.upper()}-EQ"
+    symbol = f"NSE:{alert.symbol.upper()}-EQ"
     candles = get_candles(symbol)
 
     if len(candles) < 2:
@@ -56,42 +60,44 @@ def receive_alert(alert: ChartinkAlert):
     risk_per_trade = alert.capital * 0.01
     qty = max(1, int(risk_per_trade / abs(entry_price - stoploss)))
 
-    # ✅ Market Order
-    market_payload = {
-        "symbol": symbol,
-        "qty": qty,
-        "side": 1 if alert.side == "long" else -1,
-        "type": 2,
-        "productType": "INTRADAY",
-        "validity": "DAY",
-        "offlineOrder": False,
-        "stopLoss": round(stoploss, 2),
-        "takeProfit": round(target, 2)
-    }
-    market_response = place_order(market_payload)
+    response = {}
 
-    # ✅ Limit Order
-    limit_payload = {
-        "symbol": symbol,
-        "qty": qty,
-        "side": 1 if alert.side == "long" else -1,
-        "type": 1,
-        "productType": "INTRADAY",
-        "validity": "DAY",
-        "offlineOrder": False,
-        "limitPrice": round(entry_price, 2),
-        "stopLoss": round(stoploss, 2),
-        "takeProfit": round(target, 2)
-    }
-    limit_response = place_order(limit_payload)
+    if alert.enable_instant:
+        market_payload = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": 1 if alert.side == "long" else -1,
+            "type": 2,
+            "productType": "INTRADAY",
+            "validity": "DAY",
+            "offlineOrder": False,
+            "stopLoss": round(stoploss, 2),
+            "takeProfit": round(target, 2)
+        }
+        response["market_order"] = place_order(market_payload)
 
-    return {
+    if alert.enable_stoplimit:
+        limit_payload = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": 1 if alert.side == "long" else -1,
+            "type": 1,
+            "productType": "INTRADAY",
+            "validity": "DAY",
+            "offlineOrder": False,
+            "limitPrice": round(entry_price, 2),
+            "stopLoss": round(stoploss, 2),
+            "takeProfit": round(target, 2)
+        }
+        response["limit_order"] = place_order(limit_payload)
+
+    response.update({
         "status": "success",
-        "market_order_id": market_response.get("id"),
-        "limit_order_id": limit_response.get("id"),
         "entry": round(entry_price, 2),
         "sl": round(stoploss, 2),
         "tp": round(target, 2),
         "qty": qty,
         "time": datetime.utcnow().isoformat()
-    }
+    })
+
+    return response
