@@ -1,5 +1,7 @@
+# main.py
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from bson import ObjectId
@@ -27,6 +29,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# -------- PRE-FLIGHT HANDLER (CORS FIX) --------
+@app.options("/api/chartink-alert")
+async def preflight_chartink_alert(request: Request):
+    return JSONResponse(status_code=200, content={"message": "Preflight OK"})
 
 # -------- ROOT ROUTE --------
 @app.get("/")
@@ -71,7 +78,7 @@ def chartink_alert(alert: AlertRequest):
             "order_id": str(result.inserted_id)
         }
 
-    # Live logic begins
+    # Live order logic
     if alert.enable_instant:
         logger.info("Placing INSTANT MARKET ORDER for %s", alert.stocks)
         order_type = "MARKET"
