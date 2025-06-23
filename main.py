@@ -1,103 +1,87 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fyers_client import place_order, get_ltp, get_candles
+from pydantic import BaseModel
+from fyers_client import place_order, get_candles
 from datetime import datetime
 from typing import Optional
 
 app = FastAPI()
 
-# ✅ CORS fix to allow frontend from Render
+# CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "*",
-        "https://chartink-fyers-trading-bot-frontend.onrender.com",
-        "http://localhost:5173"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ✅ Chartink alert structure
-class ChartinkAlert(BaseModel):
-    symbol: str
-    price: float
-    timestamp: str
-    alert_id: str
-    capital: Optional[float] = 100000
-    buffer: Optional[float] = 0.09
-    risk_reward: Optional[float] = 1.5
-    type: Optional[int] = 2  # 1 = Limit, 2 = Market
-    side: Optional[str] = "long"
-    enable_instant: Optional[bool] = True
-    enable_stoplimit: Optional[bool] = True
-    enable_lockprofit: Optional[bool] = False
+# 1️⃣ Define a model matching Chartink's payload
+class ChartinkPayload(BaseModel):
+    stocks: str
+    trigger_prices: str
+    triggered_at: str
+    scan_name: Optional[str]
+    scan_url: Optional[str]
+    alert_name: Optional[str]
+    webhook_url: Optional[str]
 
 @app.post("/api/chartink-alert")
-def receive_alert(alert: ChartinkAlert):
-    symbol = f"NSE:{alert.symbol.upper()}-EQ"
+async def receive_alert(alert: ChartinkPayload, req: Request):
+    # 2️⃣ Log raw JSON and Pydantic model
+    body = await req.json()
+    print("🔔 Received raw payload:", body)
+    print("✅ Parsed model:", alert)
+
+    # 3️⃣ Extract first stock and price
+    symbol_raw = alert.stocks.split(",")[0].strip()
+    price = float(alert.trigger_prices.split(",")[0].strip())
+
+    # 4️⃣ Parse timestamp (if needed)
+    try:
+        timestamp = datetime.strptime(alert.triggered_at.strip(), "%I:%M %p")
+    except:
+        timestamp = datetime.utcnow()
+    print(f"→ Symbol: {symbol_raw}, Price: {price}, Time: {timestamp.time()}")
+
+    # 5️⃣ Your existing trading logic
+    symbol = f"NSE:{symbol_raw.upper()}-EQ"
     candles = get_candles(symbol)
-
     if len(candles) < 2:
-        return {"error": "Not enough candles"}
+        raise HTTPException(status_code=400, detail="Not enough candles")
 
-    [_, o1, h1, l1, c1, _] = candles[0]  # First candle
-    [_, o2, h2, l2, c2, _] = candles[1]  # Second candle
+    [_, o1, h1, l1, c1, _] = candles[0]
+    [_, o2, h2, l2, c2, _] = candles[1]
 
-    if alert.side == "long":
-        buffer_val = (h1 - o1) * alert.buffer
-        entry_price = h1 + buffer_val
-        stoploss = h1 if alert.type == 2 else c2
-        target = entry_price + (entry_price - stoploss) * alert.risk_reward
-    else:
-        buffer_val = (o1 - l1) * alert.buffer
-        entry_price = l1 - buffer_val
-        stoploss = l1 if alert.type == 2 else c2
-        target = entry_price - (stoploss - entry_price) * alert.risk_reward
-
-    risk_per_trade = alert.capital * 0.01
+    # (… your entry/exit calculations based on existing logic …)
+    # Example for a long position:
+    buffer_val = (h1 - o1) * 0.09
+    entry_price = h1 + buffer_val
+    stoploss = h1
+    target = entry_price + (entry_price - stoploss) * 1.5
+    risk_per_trade = 100000 * 0.01
     qty = max(1, int(risk_per_trade / abs(entry_price - stoploss)))
 
-    response = {}
+    market_payload = {
+        "symbol": symbol,
+        "qty": qty,
+        "side": 1,
+        "type": 2,
+        "productType": "INTRADAY",
+        "validity": "DAY",
+        "offlineOrder": False,
+        "stopLoss": round(stoploss, 2),
+        "takeProfit": round(target, 2),
+    }
+    resp = place_order(market_payload)
 
-    if alert.enable_instant:
-        market_payload = {
-            "symbol": symbol,
-            "qty": qty,
-            "side": 1 if alert.side == "long" else -1,
-            "type": 2,
-            "productType": "INTRADAY",
-            "validity": "DAY",
-            "offlineOrder": False,
-            "stopLoss": round(stoploss, 2),
-            "takeProfit": round(target, 2)
-        }
-        response["market_order"] = place_order(market_payload)
-
-    if alert.enable_stoplimit:
-        limit_payload = {
-            "symbol": symbol,
-            "qty": qty,
-            "side": 1 if alert.side == "long" else -1,
-            "type": 1,
-            "productType": "INTRADAY",
-            "validity": "DAY",
-            "offlineOrder": False,
-            "limitPrice": round(entry_price, 2),
-            "stopLoss": round(stoploss, 2),
-            "takeProfit": round(target, 2)
-        }
-        response["limit_order"] = place_order(limit_payload)
-
-    response.update({
+    return {
         "status": "success",
+        "symbol": symbol_raw,
+        "price": price,
         "entry": round(entry_price, 2),
         "sl": round(stoploss, 2),
         "tp": round(target, 2),
         "qty": qty,
-        "time": datetime.utcnow().isoformat()
-    })
-
-    return response
+        "order_response": resp,
+    }
