@@ -73,51 +73,37 @@ async def receive_alert(req: Request):
 
     response = {}
 
-    # 📦 Step 6: Place Market Order
-    if enable_instant:
-        market_payload = {
-            "symbol": symbol,
-            "qty": qty,
-            "side": 1 if side == "long" else -1,
-            "type": 2,  # Market
-            "productType": "INTRADAY",
-            "validity": "DAY",
-            "offlineOrder": False,
-            "stopLoss": round(stoploss, 2),
-            "takeProfit": round(target, 2)
-        }
-        market_resp = place_order(market_payload)
-        print("✅ Market Order Placed:", market_payload)
-        response["market_order"] = market_resp
-
-    # 📦 Step 7: Place Limit Order
-    if enable_stoplimit:
-        limit_payload = {
-            "symbol": symbol,
-            "qty": qty,
-            "side": 1 if side == "long" else -1,
-            "type": 1,  # Limit
-            "productType": "INTRADAY",
-            "validity": "DAY",
-            "offlineOrder": False,
-            "limitPrice": round(entry_price, 2),
-            "stopLoss": round(stoploss, 2),
-            "takeProfit": round(target, 2)
-        }
-        limit_resp = place_order(limit_payload)
-        print("✅ Limit Order Placed:", limit_payload)
-        response["limit_order"] = limit_resp
-
-    # 🧾 Final return
-    response.update({
-        "status": "success",
-        "symbol": symbol_raw,
-        "price": price,
-        "entry": round(entry_price, 2),
-        "sl": round(stoploss, 2),
-        "tp": round(target, 2),
+# ✅ Step 6: Conditionally place Market Order
+if data.get("enable_instant", False):
+    market_payload = {
+        "symbol": symbol,
         "qty": qty,
-        "time": timestamp.isoformat()
-    })
+        "side": 1 if side == "long" else -1,
+        "type": 2,  # Market
+        "productType": "INTRADAY",
+        "validity": "DAY",
+        "offlineOrder": False,
+        "stopLoss": round(stoploss, 2),
+        "takeProfit": round(target, 2)
+    }
+    market_resp = place_order(market_payload)
+    print("✅ Market Order Placed:", market_payload)
+    response["market_order"] = market_resp
 
-    return response
+# ✅ Step 7: Conditionally place Limit Order
+if data.get("enable_stoplimit", False):
+    limit_payload = {
+        "symbol": symbol,
+        "qty": qty,
+        "side": 1 if side == "long" else -1,
+        "type": 1,  # Limit
+        "productType": "INTRADAY",
+        "validity": "DAY",
+        "offlineOrder": False,
+        "limitPrice": round(entry_price, 2),
+        "stopLoss": round(stoploss, 2),
+        "takeProfit": round(target, 2)
+    }
+    limit_resp = place_order(limit_payload)
+    print("✅ Limit Order Placed:", limit_payload)
+    response["limit_order"] = limit_resp
