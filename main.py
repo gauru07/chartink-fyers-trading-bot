@@ -1,123 +1,94 @@
-# main.py
-
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-from pymongo import MongoClient
 from bson import ObjectId
+from pymongo import MongoClient
 import logging
-from datetime import datetime
+import os
 
-# Setup logging
+# -------- LOGGING SETUP --------
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("trading-app")
+logger = logging.getLogger(__name__)
 
-
-from fastapi.middleware.cors import CORSMiddleware
-
+# -------- FASTAPI APP --------
 app = FastAPI()
+
+# -------- CORS MIDDLEWARE --------
+origins = [
+    "https://chartink-fyers-trading-bot-frontend.onrender.com",
+    "http://localhost:3000"
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or specify frontend origin like ["http://localhost:3000"]
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Accept all HTTP methods (GET, POST, OPTIONS, etc.)
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# FastAPI instance
-app = FastAPI()
+# -------- ROOT ROUTE --------
+@app.get("/")
+def read_root():
+    return {"message": "Backend is running"}
 
-# MongoDB setup
-client = MongoClient("mongodb://localhost:27017/")
+# -------- MONGODB CONNECTION --------
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+client = MongoClient(MONGO_URL)
 db = client["order"]
 orders_collection = db["orders"]
 
-# Pydantic schema for request
-class ChartinkAlert(BaseModel):
-    testLogicOnly: bool
-    stocks: str
-    trigger_prices: str
+# -------- SCHEMA --------
+class AlertRequest(BaseModel):
+    testLogicOnly: Optional[bool] = False
+    stocks: Optional[str] = "TESTSTOCK"
+    trigger_prices: Optional[str] = "100.5"
     type: Optional[str] = "Market"
     capital: float
     buffer: float
     risk: float
     risk_reward: float
     lot_size: float
-    enable_instant: bool = True
-    enable_stoplimit: bool = False
-    enable_lockprofit: bool = False
-    triggered_at: Optional[str] = None
+    enable_instant: Optional[bool] = False
+    enable_stoplimit: Optional[bool] = False
+    enable_lockprofit: Optional[bool] = False
+    triggered_at: str
 
+# -------- POST ROUTE --------
 @app.post("/api/chartink-alert")
-async def chartink_alert(payload: ChartinkAlert):
-    try:
-        logger.info("\n==== Incoming Alert ====")
-        logger.info(f"Payload: {payload.dict()}")
+def chartink_alert(alert: AlertRequest):
+    logger.info("Received alert: %s", alert.dict())
 
-        # Timestamp
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Decide which logic to follow
-        if payload.testLogicOnly:
-            logger.info("🔍 Test logic only mode active")
-            order_type = "TEST"
-            reason = "Testing logic only. No real trade."
-
-        elif payload.enable_instant:
-            order_type = "MARKET"
-            reason = "Instant entry enabled"
-
-        elif payload.enable_stoplimit:
-            if payload.type.lower() == "limit":
-                order_type = "STOPLIMIT"
-                reason = "Stop limit enabled and selected"
-            else:
-                order_type = "SKIPPED"
-                reason = "Stop limit enabled but type not 'limit'"
-
-        else:
-            order_type = "SKIPPED"
-            reason = "No valid execution flag selected"
-
-        # Compose full order object
-        order_data = {
-            "symbol": payload.stocks,
-            "price": payload.trigger_prices,
-            "type": payload.type,
-            "mode": order_type,
-            "reason": reason,
-            "capital": payload.capital,
-            "buffer": payload.buffer,
-            "risk": payload.risk,
-            "risk_reward": payload.risk_reward,
-            "lot_size": payload.lot_size,
-            "enable_instant": payload.enable_instant,
-            "enable_stoplimit": payload.enable_stoplimit,
-            "enable_lockprofit": payload.enable_lockprofit,
-            "test_logic_only": payload.testLogicOnly,
-            "timestamp": timestamp,
-            "triggered_at": payload.triggered_at or timestamp
-        }
-
+    if alert.testLogicOnly:
+        logger.info("[TEST MODE] Simulating logic without placing real orders.")
+        order_data = alert.dict()
+        order_data["status"] = "test_mode"
         result = orders_collection.insert_one(order_data)
-
-        logger.info(f"✅ Order logged: {order_data['mode']} | {order_data['symbol']} @ {order_data['price']} | Reason: {reason}")
-
         return {
             "status": "ok",
-            "message": "Order logged successfully",
+            "message": "Test order logic simulated.",
             "order_id": str(result.inserted_id)
         }
 
-    except Exception as e:
-        logger.error(f"❌ Error processing alert: {e}")
-        return {"error": str(e)}
+    # Live logic begins
+    if alert.enable_instant:
+        logger.info("Placing INSTANT MARKET ORDER for %s", alert.stocks)
+        order_type = "MARKET"
+    elif alert.enable_stoplimit:
+        logger.info("Placing STOP LIMIT ORDER for %s", alert.stocks)
+        order_type = "STOPLIMIT"
+    else:
+        logger.info("No order placed. Both instant and stoplimit were disabled.")
+        return {"status": "skipped", "message": "No order placed due to disabled flags."}
 
-@app.get("/logs")
-async def get_logs():
-    logs = []
-    for doc in orders_collection.find().sort("_id", -1).limit(50):
-        doc["_id"] = str(doc["_id"])
-        logs.append(doc)
-    return logs
+    order_data = alert.dict()
+    order_data["status"] = "live"
+    order_data["order_type"] = order_type
+    result = orders_collection.insert_one(order_data)
+
+    return {
+        "status": "ok",
+        "message": "Order logged successfully",
+        "order_id": str(result.inserted_id)
+    }
