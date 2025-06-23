@@ -1,25 +1,3 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fyers_client import place_order, get_ltp, get_candles
-from datetime import datetime
-from typing import Optional
-
-app = FastAPI()
-
-# ✅ CORS for frontend access
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "*",
-        "https://chartink-fyers-trading-bot-frontend.onrender.com",
-        "http://localhost:5173"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ✅ Chartink Alert Handler
 @app.post("/api/chartink-alert")
 async def receive_alert(req: Request):
     # 🔍 Step 1: Log raw incoming JSON
@@ -37,14 +15,14 @@ async def receive_alert(req: Request):
 
     print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
 
-    # 🎯 Step 3: Trading parameters (use constants or future enhancements)
-    capital = 100000
-    buffer_percent = 0.09
-    risk_reward = 1.5
-    order_type = 2  # 1 = Limit, 2 = Market
-    side = "long"   # or "short"
-    enable_instant = True
-    enable_stoplimit = True
+    # 🎯 Step 3: Read values from Chartink payload
+    capital = float(data.get("capital", 100000))
+    buffer_percent = float(data.get("buffer", 0.09))
+    risk_reward = float(data.get("risk_reward", 1.5))
+    order_type = int(data.get("type", 2))  # 1 = Limit, 2 = Market
+    side = data.get("side", "long")
+    enable_instant = data.get("enable_instant", False)
+    enable_stoplimit = data.get("enable_stoplimit", False)
 
     # 🔎 Step 4: Candle fetch and entry/exit logic
     symbol = f"NSE:{symbol_raw.upper()}-EQ"
@@ -73,37 +51,39 @@ async def receive_alert(req: Request):
 
     response = {}
 
-# ✅ Step 6: Conditionally place Market Order
-if data.get("enable_instant", False):
-    market_payload = {
-        "symbol": symbol,
-        "qty": qty,
-        "side": 1 if side == "long" else -1,
-        "type": 2,  # Market
-        "productType": "INTRADAY",
-        "validity": "DAY",
-        "offlineOrder": False,
-        "stopLoss": round(stoploss, 2),
-        "takeProfit": round(target, 2)
-    }
-    market_resp = place_order(market_payload)
-    print("✅ Market Order Placed:", market_payload)
-    response["market_order"] = market_resp
+    # ✅ Step 6: Conditionally place Market Order
+    if enable_instant:
+        market_payload = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": 1 if side == "long" else -1,
+            "type": 2,
+            "productType": "INTRADAY",
+            "validity": "DAY",
+            "offlineOrder": False,
+            "stopLoss": round(stoploss, 2),
+            "takeProfit": round(target, 2)
+        }
+        market_resp = place_order(market_payload)
+        print("✅ Market Order Placed:", market_payload)
+        response["market_order"] = market_resp
 
-# ✅ Step 7: Conditionally place Limit Order
-if data.get("enable_stoplimit", False):
-    limit_payload = {
-        "symbol": symbol,
-        "qty": qty,
-        "side": 1 if side == "long" else -1,
-        "type": 1,  # Limit
-        "productType": "INTRADAY",
-        "validity": "DAY",
-        "offlineOrder": False,
-        "limitPrice": round(entry_price, 2),
-        "stopLoss": round(stoploss, 2),
-        "takeProfit": round(target, 2)
-    }
-    limit_resp = place_order(limit_payload)
-    print("✅ Limit Order Placed:", limit_payload)
-    response["limit_order"] = limit_resp
+    # ✅ Step 7: Conditionally place Limit Order
+    if enable_stoplimit:
+        limit_payload = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": 1 if side == "long" else -1,
+            "type": 1,
+            "productType": "INTRADAY",
+            "validity": "DAY",
+            "offlineOrder": False,
+            "limitPrice": round(entry_price, 2),
+            "stopLoss": round(stoploss, 2),
+            "takeProfit": round(target, 2)
+        }
+        limit_resp = place_order(limit_payload)
+        print("✅ Limit Order Placed:", limit_payload)
+        response["limit_order"] = limit_resp
+
+    return response
