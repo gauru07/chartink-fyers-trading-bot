@@ -12,6 +12,19 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("trading-app")
 
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or specify frontend origin like ["http://localhost:3000"]
+    allow_credentials=True,
+    allow_methods=["*"],  # Accept all HTTP methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],
+)
+
 # FastAPI instance
 app = FastAPI()
 
