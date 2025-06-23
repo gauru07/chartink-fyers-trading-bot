@@ -1,3 +1,14 @@
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fyers_client import place_order, get_ltp, get_candles
+from datetime import datetime
+
+app = FastAPI()  # ✅ Define this FIRST
+
+
+
+
+
 @app.post("/api/chartink-alert")
 async def receive_alert(req: Request):
     # 🔍 Step 1: Log raw incoming JSON
