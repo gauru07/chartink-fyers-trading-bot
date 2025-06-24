@@ -41,8 +41,11 @@ def read_root():
     return {"message": "Backend is running"}
 
 # -------- MONGODB CONNECTION --------
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+# MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
+# client = MongoClient(MONGO_URL)
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017").strip()
 client = MongoClient(MONGO_URL)
+
 db = client["order"]
 orders_collection = db["orders"]
 
