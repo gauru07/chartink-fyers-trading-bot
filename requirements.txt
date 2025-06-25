@@ -15,4 +15,5 @@ soupsieve==2.7
 typing_extensions==4.14.0
 tzdata==2025.2
 urllib3==2.5.0
+fastapi==0.111.0
 uvicorn==0.34.3
