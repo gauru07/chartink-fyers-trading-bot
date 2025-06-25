@@ -6,7 +6,7 @@ import schedule
 import json
 
 # Your deployed backend endpoint
-BACKEND_URL = "https://yourbackendurl.com/api/chartink-alert"
+BACKEND_URL = "https://chartlink-api.onrender.com/api/chartink-alert"
 
 def fetch_and_trade():
     print("📡 Fetching Chartink scan...")
