@@ -19,17 +19,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# 🧠 Structure-based SL/TP Logic
+def calculate_trade_details(trigger_price: float, rr: float, side: str, prev_candle: dict):
+    if side == "long":
+        sl = prev_candle["low"]
+        tp = trigger_price + (trigger_price - sl) * rr
+    else:
+        sl = prev_candle["high"]
+        tp = trigger_price - (sl - trigger_price) * rr
+    return round(sl, 2), round(tp, 2)
+
+
 # ✅ Chartink Alert Handler
 @app.post("/api/chartink-alert")
 async def receive_alert(req: Request):
-    # 🔍 Step 1: Log raw incoming JSON
     data = await req.json()
     print("🔔 Received raw payload:", data)
 
-    # ✅ Step 2: Identify if coming from Chartink
     is_chartink = "chartink" in data.get("webhook_url", "")
-
-    # ✅ Step 3: Extract values with fallback defaults
+    
     try:
         symbol_raw = data.get("stocks", "RELIANCE").split(",")[0].strip()
         price = float(data.get("trigger_prices", "1000").split(",")[0].strip())
@@ -40,7 +49,6 @@ async def receive_alert(req: Request):
 
     print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
 
-    # 🛠️ Step 4: Customizable Settings (from payload or default)
     test_logic = data.get("testLogicOnly", False)
     capital = float(data.get("capital", 100000))
     buffer_percent = float(data.get("buffer", 0.09))
@@ -53,9 +61,9 @@ async def receive_alert(req: Request):
     enable_lockprofit = data.get("enable_lockprofit", False)
 
     order_type = 2 if data.get("type", "Market").lower() == "market" else 1
-    side = data.get("side", "long")  # now customizable
+    side = data.get("side", "long")  # "long" or "short"
 
-    # 🕯️ Step 5: Candle logic
+    # 🕯️ Candle data
     symbol = f"NSE:{symbol_raw.upper()}-EQ"
     candles = get_candles(symbol)
 
@@ -65,16 +73,12 @@ async def receive_alert(req: Request):
     [_, o1, h1, l1, c1, _] = candles[0]
     [_, o2, h2, l2, c2, _] = candles[1]
 
-    if side == "long":
-        buffer_val = (h1 - o1) * buffer_percent
-        entry_price = h1 + buffer_val
-        stoploss = h1 if order_type == 2 else c2
-        target = entry_price + (entry_price - stoploss) * risk_reward
-    else:
-        buffer_val = (o1 - l1) * buffer_percent
-        entry_price = l1 - buffer_val
-        stoploss = l1 if order_type == 2 else c2
-        target = entry_price - (stoploss - entry_price) * risk_reward
+    prev_candle = {"open": o1, "high": h1, "low": l1, "close": c1}
+
+    buffer_val = (h1 - l1) * buffer_percent
+    entry_price = price + buffer_val if side == "long" else price - buffer_val
+
+    stoploss, target = calculate_trade_details(entry_price, risk_reward, side, prev_candle)
 
     # 📊 Risk & Quantity
     risk_per_trade = capital * risk_percent
@@ -82,36 +86,37 @@ async def receive_alert(req: Request):
 
     response = {}
 
-    # 🚀 Step 6: Market Order
+    # 🚀 Market Order
     if enable_instant:
         market_payload = {
             "symbol": symbol,
             "qty": qty,
             "side": 1 if side == "long" else -1,
-            "type": 2,  # Market
+            "type": 2,
             "productType": "INTRADAY",
             "validity": "DAY",
             "offlineOrder": False,
-            "stopLoss": round(stoploss, 2),
-            "takeProfit": round(target, 2)
+            "stopLoss": stoploss,
+            "takeProfit": target
         }
         market_resp = place_order(market_payload)
         print("✅ Market Order Placed:", market_payload)
         response["market_order"] = market_resp
 
-    # 💼 Step 7: Limit Order
+    # 💼 Limit Order
     if enable_stoplimit:
+        limit_price = round(entry_price, 2)
         limit_payload = {
             "symbol": symbol,
             "qty": qty,
             "side": 1 if side == "long" else -1,
-            "type": 1,  # Limit
+            "type": 1,
             "productType": "INTRADAY",
             "validity": "DAY",
             "offlineOrder": False,
-            "limitPrice": round(entry_price, 2),
-            "stopLoss": round(stoploss, 2),
-            "takeProfit": round(target, 2)
+            "limitPrice": limit_price,
+            "stopLoss": stoploss,
+            "takeProfit": target
         }
         limit_resp = place_order(limit_payload)
         print("✅ Limit Order Placed:", limit_payload)
