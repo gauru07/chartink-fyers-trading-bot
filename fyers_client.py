@@ -3,8 +3,11 @@ import os
 from dotenv import load_dotenv
 
 # Load access token
-with open("access_token.txt", "r") as f:
-    access_token = f.read().strip()
+# with open("access_token.txt", "r") as f:
+#     access_token = f.read().strip()
+
+import os
+access_token = os.getenv("FYERS_ACCESS_TOKEN")
 
 client_id = "I2YG2SAKG1-100"
 

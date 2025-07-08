@@ -5,3 +5,4 @@
 {"level":"ERROR","location":"[get_call:146] fyersModel","message":{"API":"/quotes","Error":{"message":"Please provide valid token","code":-15,"s":"error"}},"timestamp":"2025-07-01 15:50:06,377+0530","service":"FyersAPI","taskName":"Task-8"}
 {"level":"ERROR","location":"[get_call:146] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2025-07-01 16:00:26,856+0530","service":"FyersAPI","taskName":"Task-5"}
 {"level":"ERROR","location":"[get_call:146] fyersModel","message":{"API":"/history","Error":{"code":-16,"message":"Could not authenticate the user","s":"error"}},"timestamp":"2025-07-08 10:42:56,021+0530","service":"FyersAPI","taskName":"Task-9"}
+{"level":"ERROR","location":"[post_call:89] fyersModel","message":{"API":"/orders/sync","Error":{"code":-50,"message":"stopLoss does not match: 0","s":"error"}},"timestamp":"2025-07-08 13:40:34,446+0530","service":"FyersAPI"}

@@ -152,6 +152,14 @@ async def receive_alert(alert: ChartinkAlert):
         print("✅ Market Order Placed:", market_payload)
         response["market_order"] = market_resp
 
+        # 🧠 NEW: If market order failed, show clear reason
+        if "s" in market_resp and market_resp["s"] == "error":
+            raise HTTPException(
+                 status_code=400,
+                   detail=market_resp.get("message", "Fyers rejected the market order")
+            )
+
+
     # Step 7: Limit Order
     if enable_stoplimit:
         limit_payload = {
