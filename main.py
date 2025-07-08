@@ -1,12 +1,27 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fyers_client import place_order, get_ltp, get_candles
+from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+import os
+from dotenv import load_dotenv
+from fyers_client import get_candles
+
+# You will use your real fyers_client here
+from fyers_client import place_order, get_ltp, get_candles
+
+# Load .env
+load_dotenv()
+
+client_id = os.getenv("CLIENT_ID")
+secret_id = os.getenv("SECRET_ID")
+redirect_uri = os.getenv("REDIRECT_URI")
+# fyers_access_token = os.getenv("FYERS_ACCESS_TOKEN")
+with open("access_token.txt", "r") as f:
+    fyers_access_token = f.read().strip()
+fyers_refresh_token = os.getenv("FYERS_REFRESH_TOKEN")
 
 app = FastAPI()
 
-# ✅ CORS for frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -19,36 +34,78 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Define Pydantic model for the expected payload
+class ChartinkAlert(BaseModel):
+    webhook_url: str = None
+    stocks: str = None
+    trigger_prices: str = None
+    triggered_at: str = None
+    type: str = None
+    testLogicOnly: bool = False
+    capital: float = 100000
+    buffer: float = 0.09
+    risk: float = 0.01
+    risk_reward: float = 1.5
+    lot_size: int = 1
+    enable_instant: bool = True
+    enable_stoplimit: bool = True
+    enable_lockprofit: bool = False
 
-# 🧠 Structure-based SL/TP Logic
-def calculate_trade_details(trigger_price: float, rr: float, side: str, prev_candle: dict):
-    if side == "long":
-        sl = prev_candle["low"]
-        tp = trigger_price + (trigger_price - sl) * rr
-    else:
-        sl = prev_candle["high"]
-        tp = trigger_price - (sl - trigger_price) * rr
-    return round(sl, 2), round(tp, 2)
+
+@app.get("/ping")
+async def ping():
+    return {"status": "alive"}
+
+# -----------------  NEW TEST ENDPOINTS  -----------------
+@app.get("/test-candle")
+async def test_candle(symbol: str = "NSE:RELIANCE-EQ"):
+    """
+    Quick sanity-check that we can talk to FYERS.
+
+    • pass ?symbol=NSE:TCS-EQ to test other scrips
+    • returns candle count and first / last candle received
+    """
+    candles = get_candles(symbol)
+    if not candles:
+        return {"symbol": symbol, "candle_count": 0, "sample": "No data"}
+
+    return {
+        "symbol":    symbol,
+        "candle_count": len(candles),
+        "sample": {"first": candles[0], "last": candles[-1]},
+    }
 
 
-# ✅ Chartink Alert Handler
+@app.get("/ltp")
+async def ltp(symbol: str = "NSE:RELIANCE-EQ"):
+    """
+    Lightweight ping to ensure quotes endpoint works.
+    """
+    return get_ltp(symbol)
+# --------------------------------------------------------
+
+
+
 @app.post("/api/chartink-alert")
-async def receive_alert(req: Request):
-    data = await req.json()
+async def receive_alert(alert: ChartinkAlert):
+    data = alert.dict()
     print("🔔 Received raw payload:", data)
 
-    is_chartink = "chartink" in data.get("webhook_url", "")
-    
+    # Step 2: Identify if coming from Chartink
+    is_chartink = "chartink" in (data.get("webhook_url") or "")
+
+    # Step 3: Extract values with fallback defaults
     try:
-        symbol_raw = data.get("stocks", "RELIANCE").split(",")[0].strip()
-        price = float(data.get("trigger_prices", "1000").split(",")[0].strip())
-        triggered_at = data.get("triggered_at", "")
+        symbol_raw = (data.get("stocks") or "RELIANCE").split(",")[0].strip()
+        price = float((data.get("trigger_prices") or "1000").split(",")[0].strip())
+        triggered_at = data.get("triggered_at") or ""
         timestamp = datetime.strptime(triggered_at.strip(), "%I:%M %p") if triggered_at else datetime.utcnow()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid payload structure: {str(e)}")
 
     print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
 
+    # Step 4: Customizable Settings (from payload or default)
     test_logic = data.get("testLogicOnly", False)
     capital = float(data.get("capital", 100000))
     buffer_percent = float(data.get("buffer", 0.09))
@@ -60,10 +117,10 @@ async def receive_alert(req: Request):
     enable_stoplimit = data.get("enable_stoplimit", True if is_chartink else False)
     enable_lockprofit = data.get("enable_lockprofit", False)
 
-    order_type = 2 if data.get("type", "Market").lower() == "market" else 1
-    side = data.get("side", "long")  # "long" or "short"
+    order_type = 2 if (data.get("type") or "Market").lower() == "market" else 1
+    side = "long"
 
-    # 🕯️ Candle data
+    # Step 5: Candle logic
     symbol = f"NSE:{symbol_raw.upper()}-EQ"
     candles = get_candles(symbol)
 
@@ -73,50 +130,53 @@ async def receive_alert(req: Request):
     [_, o1, h1, l1, c1, _] = candles[0]
     [_, o2, h2, l2, c2, _] = candles[1]
 
-    prev_candle = {"open": o1, "high": h1, "low": l1, "close": c1}
+    if side == "long":
+        buffer_val = (h1 - o1) * buffer_percent
+        entry_price = h1 + buffer_val
+        stoploss = h1 if order_type == 2 else c2
+        target = entry_price + (entry_price - stoploss) * risk_reward
+    else:
+        buffer_val = (o1 - l1) * buffer_percent
+        entry_price = l1 - buffer_val
+        stoploss = l1 if order_type == 2 else c2
+        target = entry_price - (stoploss - entry_price) * risk_reward
 
-    buffer_val = (h1 - l1) * buffer_percent
-    entry_price = price + buffer_val if side == "long" else price - buffer_val
-
-    stoploss, target = calculate_trade_details(entry_price, risk_reward, side, prev_candle)
-
-    # 📊 Risk & Quantity
+    # Risk & Quantity
     risk_per_trade = capital * risk_percent
     qty = max(1, int(risk_per_trade / abs(entry_price - stoploss))) * lot_size
 
     response = {}
 
-    # 🚀 Market Order
+    # Step 6: Market Order
     if enable_instant:
         market_payload = {
             "symbol": symbol,
             "qty": qty,
             "side": 1 if side == "long" else -1,
-            "type": 2,
+            "type": 2,  # Market
             "productType": "INTRADAY",
             "validity": "DAY",
             "offlineOrder": False,
-            "stopLoss": stoploss,
-            "takeProfit": target
+            "stopLoss": round(stoploss, 2),
+            "takeProfit": round(target, 2)
         }
         market_resp = place_order(market_payload)
         print("✅ Market Order Placed:", market_payload)
         response["market_order"] = market_resp
 
-    # 💼 Limit Order
+    # Step 7: Limit Order
     if enable_stoplimit:
-        limit_price = round(entry_price, 2)
         limit_payload = {
             "symbol": symbol,
             "qty": qty,
             "side": 1 if side == "long" else -1,
-            "type": 1,
+            "type": 1,  # Limit
             "productType": "INTRADAY",
             "validity": "DAY",
             "offlineOrder": False,
-            "limitPrice": limit_price,
-            "stopLoss": stoploss,
-            "takeProfit": target
+            "limitPrice": round(entry_price, 2),
+            "stopLoss": round(stoploss, 2),
+            "takeProfit": round(target, 2)
         }
         limit_resp = place_order(limit_payload)
         print("✅ Limit Order Placed:", limit_payload)
