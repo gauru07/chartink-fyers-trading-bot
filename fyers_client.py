@@ -34,7 +34,6 @@ def place_order(order_payload):
         return {"error": str(e)}
 
 
-
 # ✅ Get LTP (Last Traded Price)
 def get_ltp(symbol: str):
     try:
