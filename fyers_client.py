@@ -25,9 +25,14 @@ fyers = fyersModel.FyersModel(
     
 def place_order(order_payload):
     print("📦 Sending order to Fyers:", order_payload)
-    response = fyers.place_order(order_payload)
-    print("📩 Response from Fyers:", response)
-    return response
+    try:
+        response = fyers.place_order(order_payload)
+        print("📩 Response from Fyers:", response)
+        return response
+    except Exception as e:
+        print("❌ Fyers order error:", str(e))
+        return {"error": str(e)}
+
 
 
 # ✅ Get LTP (Last Traded Price)
