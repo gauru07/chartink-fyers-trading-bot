@@ -4,9 +4,7 @@ from pydantic import BaseModel
 from datetime import datetime
 import os
 from dotenv import load_dotenv
-from fyers_client import get_candles
-
-# You will use your real fyers_client here
+from dateutil import parser  # ✅ NEW IMPORT
 from fyers_client import place_order, get_ltp, get_candles
 
 # Load .env
@@ -15,7 +13,6 @@ load_dotenv()
 client_id = os.getenv("CLIENT_ID")
 secret_id = os.getenv("SECRET_ID")
 redirect_uri = os.getenv("REDIRECT_URI")
-# fyers_access_token = os.getenv("FYERS_ACCESS_TOKEN")
 with open("access_token.txt", "r") as f:
     fyers_access_token = f.read().strip()
 fyers_refresh_token = os.getenv("FYERS_REFRESH_TOKEN")
@@ -34,7 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Define Pydantic model for the expected payload
+# ------------------ PAYLOAD MODEL ------------------
 class ChartinkAlert(BaseModel):
     webhook_url: str = None
     stocks: str = None
@@ -51,20 +48,13 @@ class ChartinkAlert(BaseModel):
     enable_stoplimit: bool = True
     enable_lockprofit: bool = False
 
-
+# ------------------ TEST ROUTES ------------------
 @app.get("/ping")
 async def ping():
     return {"status": "alive"}
 
-# -----------------  NEW TEST ENDPOINTS  -----------------
 @app.get("/test-candle")
 async def test_candle(symbol: str = "NSE:RELIANCE-EQ"):
-    """
-    Quick sanity-check that we can talk to FYERS.
-
-    • pass ?symbol=NSE:TCS-EQ to test other scrips
-    • returns candle count and first / last candle received
-    """
     candles = get_candles(symbol)
     if not candles:
         return {"symbol": symbol, "candle_count": 0, "sample": "No data"}
@@ -75,31 +65,27 @@ async def test_candle(symbol: str = "NSE:RELIANCE-EQ"):
         "sample": {"first": candles[0], "last": candles[-1]},
     }
 
-
 @app.get("/ltp")
 async def ltp(symbol: str = "NSE:RELIANCE-EQ"):
-    """
-    Lightweight ping to ensure quotes endpoint works.
-    """
     return get_ltp(symbol)
-# --------------------------------------------------------
 
 
-
+# ------------------ MAIN ROUTE ------------------
 @app.post("/api/chartink-alert")
 async def receive_alert(alert: ChartinkAlert):
     data = alert.dict()
     print("🔔 Received raw payload:", data)
 
-    # Step 2: Identify if coming from Chartink
     is_chartink = "chartink" in (data.get("webhook_url") or "")
 
-    # Step 3: Extract values with fallback defaults
     try:
         symbol_raw = (data.get("stocks") or "RELIANCE").split(",")[0].strip()
         price = float((data.get("trigger_prices") or "1000").split(",")[0].strip())
+
+        # ✅ NEW SAFE CROSS-PLATFORM PARSING
         triggered_at = data.get("triggered_at") or ""
-        timestamp = datetime.strptime(triggered_at.strip(), "%I:%M %p") if triggered_at else datetime.utcnow()
+        timestamp = parser.parse(triggered_at) if triggered_at else datetime.utcnow()
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid payload structure: {str(e)}")
 
