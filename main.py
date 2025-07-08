@@ -87,96 +87,95 @@ async def receive_alert(alert: ChartinkAlert):
         triggered_at = data.get("triggered_at") or ""
         timestamp = parser.parse(triggered_at) if triggered_at else datetime.utcnow()
 
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid payload structure: {str(e)}")
-
-    print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
+        print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
 
     # Step 4: Customizable Settings (from payload or default)
-    test_logic = data.get("testLogicOnly", False)
-    capital = float(data.get("capital", 100000))
-    buffer_percent = float(data.get("buffer", 0.09))
-    risk_percent = float(data.get("risk", 0.01))
-    risk_reward = float(data.get("risk_reward", 1.5))
-    lot_size = int(data.get("lot_size", 1))
+        test_logic = data.get("testLogicOnly", False)
+        capital = float(data.get("capital", 100000))
+        buffer_percent = float(data.get("buffer", 0.09))
+        risk_percent = float(data.get("risk", 0.01))
+        risk_reward = float(data.get("risk_reward", 1.5))
+        lot_size = int(data.get("lot_size", 1))
 
-    enable_instant = data.get("enable_instant", True if is_chartink else False)
-    enable_stoplimit = data.get("enable_stoplimit", True if is_chartink else False)
-    enable_lockprofit = data.get("enable_lockprofit", False)
+        enable_instant = data.get("enable_instant", True if is_chartink else False)
+        enable_stoplimit = data.get("enable_stoplimit", True if is_chartink else False)
+        enable_lockprofit = data.get("enable_lockprofit", False)
 
-    order_type = 2 if (data.get("type") or "Market").lower() == "market" else 1
-    side = "long"
+        order_type = 2 if (data.get("type") or "Market").lower() == "market" else 1
+        side = "long"
 
-    # Step 5: Candle logic
-    # symbol = f"NSE:{symbol_raw.upper()}-EQ"
-    symbol = f"NSE:{symbol_raw.upper()}"  # remove -EQ
+        # Step 5: Candle logic
+        # symbol = f"NSE:{symbol_raw.upper()}-EQ"
+        symbol = f"NSE:{symbol_raw.upper()}"  # remove -EQ
 
-    candles = get_candles(symbol)
+        candles = get_candles(symbol)
 
-    if len(candles) < 2:
-        raise HTTPException(status_code=400, detail="Not enough candle data")
+        if len(candles) < 2:
+            raise HTTPException(status_code=400, detail="Not enough candle data")
 
-    [_, o1, h1, l1, c1, _] = candles[0]
-    [_, o2, h2, l2, c2, _] = candles[1]
+        [_, o1, h1, l1, c1, _] = candles[0]
+        [_, o2, h2, l2, c2, _] = candles[1]
 
-    if side == "long":
-        buffer_val = (h1 - o1) * buffer_percent
-        entry_price = h1 + buffer_val
-        stoploss = h1 if order_type == 2 else c2
-        target = entry_price + (entry_price - stoploss) * risk_reward
-    else:
-        buffer_val = (o1 - l1) * buffer_percent
-        entry_price = l1 - buffer_val
-        stoploss = l1 if order_type == 2 else c2
-        target = entry_price - (stoploss - entry_price) * risk_reward
+        if side == "long":
+            buffer_val = (h1 - o1) * buffer_percent
+            entry_price = h1 + buffer_val
+            stoploss = h1 if order_type == 2 else c2
+            target = entry_price + (entry_price - stoploss) * risk_reward
+        else:
+            buffer_val = (o1 - l1) * buffer_percent
+            entry_price = l1 - buffer_val
+            stoploss = l1 if order_type == 2 else c2
+            target = entry_price - (stoploss - entry_price) * risk_reward
 
-    # Risk & Quantity
-    risk_per_trade = capital * risk_percent
-    qty = max(1, int(risk_per_trade / abs(entry_price - stoploss))) * lot_size
+        # Risk & Quantity
+        risk_per_trade = capital * risk_percent
+        qty = max(1, int(risk_per_trade / abs(entry_price - stoploss))) * lot_size
 
-    response = {}
+        response = {}
 
-    # Step 6: Market Order
-    if enable_instant:
-        market_payload = {
-            "symbol": symbol,
-            "qty": qty,
-            "side": 1 if side == "long" else -1,
-            "type": 2,  # Market
-            "productType": "INTRADAY",
-            "validity": "DAY",
-            "offlineOrder": False,
-            "stopLoss": round(stoploss, 2),
-            "takeProfit": round(target, 2)
-        }
-        market_resp = place_order(market_payload)
-        print("✅ Market Order Placed:", market_payload)
-        response["market_order"] = market_resp
+        # Step 6: Market Order
+        if enable_instant:
+            market_payload = {
+                "symbol": symbol,
+                "qty": qty,
+                "side": 1 if side == "long" else -1,
+                "type": 2,  # Market
+                "productType": "INTRADAY",
+                "validity": "DAY",
+                "offlineOrder": False,
+                "stopLoss": round(stoploss, 2),
+                "takeProfit": round(target, 2)
+            }
+            market_resp = place_order(market_payload)
+            print("✅ Market Order Placed:", market_payload)
+            response["market_order"] = market_resp
 
-        # 🧠 NEW: If market order failed, show clear reason
-        if "s" in market_resp and market_resp["s"] == "error":
-            raise HTTPException(
-                 status_code=400,
-                   detail=market_resp.get("message", "Fyers rejected the market order")
-            )
+            # 🧠 NEW: If market order failed, show clear reason
+            if "s" in market_resp and market_resp["s"] == "error":
+                raise HTTPException(
+                    status_code=400,
+                    detail=market_resp.get("message", "Fyers rejected the market order")
+                )
 
 
-    # Step 7: Limit Order
-    if enable_stoplimit:
-        limit_payload = {
-            "symbol": symbol,
-            "qty": qty,
-            "side": 1 if side == "long" else -1,
-            "type": 1,  # Limit
-            "productType": "INTRADAY",
-            "validity": "DAY",
-            "offlineOrder": False,
-            "limitPrice": round(entry_price, 2),
-            "stopLoss": round(stoploss, 2),
-            "takeProfit": round(target, 2)
-        }
-        limit_resp = place_order(limit_payload)
-        print("✅ Limit Order Placed:", limit_payload)
-        response["limit_order"] = limit_resp
+        # Step 7: Limit Order
+        if enable_stoplimit:
+            limit_payload = {
+                "symbol": symbol,
+                "qty": qty,
+                "side": 1 if side == "long" else -1,
+                "type": 1,  # Limit
+                "productType": "INTRADAY",
+                "validity": "DAY",
+                "offlineOrder": False,
+                "limitPrice": round(entry_price, 2),
+                "stopLoss": round(stoploss, 2),
+                "takeProfit": round(target, 2)
+            }
+            limit_resp = place_order(limit_payload)
+            print("✅ Limit Order Placed:", limit_payload)
+            response["limit_order"] = limit_resp
 
-    return {"status": "ok", "details": response}
+        return {"status": "ok", "details": response}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
