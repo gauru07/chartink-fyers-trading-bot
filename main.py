@@ -13,8 +13,9 @@ load_dotenv()
 client_id = os.getenv("CLIENT_ID")
 secret_id = os.getenv("SECRET_ID")
 redirect_uri = os.getenv("REDIRECT_URI")
-with open("access_token.txt", "r") as f:
-    fyers_access_token = f.read().strip()
+# with open("access_token.txt", "r") as f:
+#     fyers_access_token = f.read().strip()
+access_token = os.getenv("FYERS_ACCESS_TOKEN")
 fyers_refresh_token = os.getenv("FYERS_REFRESH_TOKEN")
 
 app = FastAPI()

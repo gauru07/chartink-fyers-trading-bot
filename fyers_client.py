@@ -35,6 +35,9 @@ def place_order(order_payload):
     except Exception as e:
         print("❌ Fyers order error:", str(e))
         return {"error": str(e)}
+    if not access_token:
+        print("❌ No access token loaded! Check env config.")
+
 
 
 # ✅ Get LTP (Last Traded Price)
