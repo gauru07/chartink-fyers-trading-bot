@@ -8,7 +8,7 @@ numpy==2.3.1
 pandas==2.3.0
 python-dateutil==2.9.0.post0
 pytz==2025.2
-requests==2.32.4
+requests==2.31.0         # ✅ downgraded for fyers-apiv3 compatibility
 schedule==1.2.2
 six==1.17.0
 soupsieve==2.7
