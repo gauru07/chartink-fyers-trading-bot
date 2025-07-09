@@ -114,14 +114,12 @@ async def receive_alert(alert: ChartinkAlert):
         order_type = 2 if (data.get("type") or "Market").lower() == "market" else 1
         side = "long"
 
+
         # Step 5: Candle logic
         # symbol = f"NSE:{symbol_raw.upper()}-EQ"
         # symbol = f"NSE:{symbol_raw.upper()}"  # remove -EQ
-        symbol = f"NSE:{symbol_raw.upper()}-EQ"
-
+        symbol = f"NSE:{symbol_raw.upper()}"
         candles = get_candles(symbol)
-
-        # return {'data': candles}
 
         [_, o1, h1, l1, c1, _] = candles[0]
         [_, o2, h2, l2, c2, _] = candles[1]
@@ -136,6 +134,13 @@ async def receive_alert(alert: ChartinkAlert):
             entry_price = l1 - buffer_val
             stoploss = l1 if order_type == 2 else c2
             target = entry_price - (stoploss - entry_price) * risk_reward
+
+        # 🧠 Validation: prevent zero-risk trades
+        if abs(entry_price - stoploss) < 0.01:
+            raise HTTPException(
+                status_code=400,
+                detail="Entry and Stoploss too close or same. Risk too small for a valid trade."
+            )
 
         # Risk & Quantity
         risk_per_trade = capital * risk_percent
@@ -167,7 +172,6 @@ async def receive_alert(alert: ChartinkAlert):
                     detail=market_resp.get("message", "Fyers rejected the market order")
                 )
 
-
         # Step 7: Limit Order
         if enable_stoplimit:
             limit_payload = {
@@ -187,5 +191,3 @@ async def receive_alert(alert: ChartinkAlert):
             response["limit_order"] = limit_resp
 
         return {"status": "ok", "details": response}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
