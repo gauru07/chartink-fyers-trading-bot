@@ -118,7 +118,9 @@ async def receive_alert(alert: ChartinkAlert):
         # candles = get_candles(symbol)
 
         # Step 4: Candle logic
-        symbol = f"NSE:{symbol_raw.upper()}-EQ"
+        # symbol = f"NSE:{symbol_raw.upper()}-EQ"
+        symbol = f"NSE:{symbol_raw.upper()}-EQ"  # Start with -EQ as default
+
         candles = get_candles(symbol)
 
         if not candles:
