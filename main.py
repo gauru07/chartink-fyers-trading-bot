@@ -81,8 +81,7 @@ async def ltp(symbol: str = "NSE:RELIANCE-EQ"):
 async def status():
     return check_fyers_status()
 
-# ------------------ MAIN ROUTE ------------------
-@app.post("/api/chartink-alert")
+# @app.post("/api/chartink-alert")
 async def receive_alert(alert: ChartinkAlert):
     data = alert.dict()
     print("🔔 Received raw payload:", data)
@@ -90,16 +89,16 @@ async def receive_alert(alert: ChartinkAlert):
     is_chartink = "chartink" in (data.get("webhook_url") or "")
 
     try:
+        # Step 1: Extract base symbol and price
         symbol_raw = (data.get("stocks") or "RELIANCE").split(",")[0].strip()
         price = float((data.get("trigger_prices") or "1000").split(",")[0].strip())
 
-        # ✅ NEW SAFE CROSS-PLATFORM PARSING
+        # Step 2: Robust timestamp parsing
         triggered_at = data.get("triggered_at") or ""
         timestamp = parser.parse(triggered_at) if triggered_at else datetime.utcnow()
-
         print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
 
-    # Step 4: Customizable Settings (from payload or default)
+        # Step 3: Configurable Settings
         test_logic = data.get("testLogicOnly", False)
         capital = float(data.get("capital", 100000))
         buffer_percent = float(data.get("buffer", 0.09))
@@ -114,10 +113,7 @@ async def receive_alert(alert: ChartinkAlert):
         order_type = 2 if (data.get("type") or "Market").lower() == "market" else 1
         side = "long"
 
-
-        # Step 5: Candle logic
-        # symbol = f"NSE:{symbol_raw.upper()}-EQ"
-        # symbol = f"NSE:{symbol_raw.upper()}"  # remove -EQ
+        # Step 4: Candle logic
         symbol = f"NSE:{symbol_raw.upper()}"
         candles = get_candles(symbol)
 
@@ -135,26 +131,26 @@ async def receive_alert(alert: ChartinkAlert):
             stoploss = l1 if order_type == 2 else c2
             target = entry_price - (stoploss - entry_price) * risk_reward
 
-        # 🧠 Validation: prevent zero-risk trades
+        # Step 5: Prevent invalid risk setups
         if abs(entry_price - stoploss) < 0.01:
             raise HTTPException(
                 status_code=400,
                 detail="Entry and Stoploss too close or same. Risk too small for a valid trade."
             )
 
-        # Risk & Quantity
+        # Step 6: Risk and Quantity
         risk_per_trade = capital * risk_percent
         qty = max(1, int(risk_per_trade / abs(entry_price - stoploss))) * lot_size
 
         response = {}
 
-        # Step 6: Market Order
+        # Step 7: Market Order (optional)
         if enable_instant:
             market_payload = {
                 "symbol": symbol,
                 "qty": qty,
                 "side": 1 if side == "long" else -1,
-                "type": 2,  # Market
+                "type": 2,
                 "productType": "INTRADAY",
                 "validity": "DAY",
                 "offlineOrder": False,
@@ -165,20 +161,19 @@ async def receive_alert(alert: ChartinkAlert):
             print("✅ Market Order Placed:", market_payload)
             response["market_order"] = market_resp
 
-            # 🧠 NEW: If market order failed, show clear reason
             if "s" in market_resp and market_resp["s"] == "error":
                 raise HTTPException(
                     status_code=400,
                     detail=market_resp.get("message", "Fyers rejected the market order")
                 )
 
-        # Step 7: Limit Order
+        # Step 8: StopLimit Order (optional)
         if enable_stoplimit:
             limit_payload = {
                 "symbol": symbol,
                 "qty": qty,
                 "side": 1 if side == "long" else -1,
-                "type": 1,  # Limit
+                "type": 1,
                 "productType": "INTRADAY",
                 "validity": "DAY",
                 "offlineOrder": False,
@@ -191,3 +186,6 @@ async def receive_alert(alert: ChartinkAlert):
             response["limit_order"] = limit_resp
 
         return {"status": "ok", "details": response}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
