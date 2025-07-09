@@ -69,7 +69,9 @@ def get_candles(symbol: str):
             return []
 
         candles = response["candles"]
+        print("📊 Requesting candles for:", symbol)
         return candles[-2:]  # return last 2 candles
     except Exception as e:
         print("⚠️ Error fetching candles:", str(e))
         return []
+
