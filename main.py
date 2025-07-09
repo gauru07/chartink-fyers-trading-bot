@@ -81,7 +81,7 @@ async def ltp(symbol: str = "NSE:RELIANCE-EQ"):
 async def status():
     return check_fyers_status()
 
-# @app.post("/api/chartink-alert")
+@app.post("/api/chartink-alert")
 async def receive_alert(alert: ChartinkAlert):
     data = alert.dict()
     print("🔔 Received raw payload:", data)
