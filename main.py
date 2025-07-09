@@ -161,40 +161,47 @@ async def receive_alert(alert: ChartinkAlert):
                 "symbol": symbol,
                 "qty": qty,
                 "side": 1 if side == "long" else -1,
-                "type": 2,
+                "type": 2,  # ✅ Market
                 "productType": "INTRADAY",
                 "validity": "DAY",
-                "offlineOrder": False,
-                "stopLoss": round(stoploss, 2),
-                "takeProfit": round(target, 2)
+                "offlineOrder": False
             }
-            market_resp = place_order(market_payload)
-            print("✅ Market Order Placed:", market_payload)
-            response["market_order"] = market_resp
+        market_resp = place_order(market_payload)
+        print("✅ Market Order Placed:", market_payload)
+        response["market_order"] = market_resp
 
-            if "s" in market_resp and market_resp["s"] == "error":
-                raise HTTPException(
-                    status_code=400,
-                    detail=market_resp.get("message", "Fyers rejected the market order")
-                )
+        if "s" in market_resp and market_resp["s"] == "error":
+            raise HTTPException(
+                status_code=400,
+                detail=market_resp.get("message", "Fyers rejected the Market order")
+            )
+
 
         # Step 8: StopLimit Order (optional)
+        # Step 6: Limit Order for Entry with SL/TP
         if enable_stoplimit:
             limit_payload = {
                 "symbol": symbol,
                 "qty": qty,
                 "side": 1 if side == "long" else -1,
-                "type": 1,
+                "type": 1,  # ✅ Limit Order
                 "productType": "INTRADAY",
                 "validity": "DAY",
                 "offlineOrder": False,
-                "limitPrice": round(entry_price, 2),
-                "stopLoss": round(stoploss, 2),
-                "takeProfit": round(target, 2)
+                "limitPrice": round(entry_price, 2),      # 🎯 Entry point
+                "stopLoss": round(stoploss, 2),           # 🔻 SL
+                "takeProfit": round(target, 2)            # 🔺 Target
             }
             limit_resp = place_order(limit_payload)
             print("✅ Limit Order Placed:", limit_payload)
             response["limit_order"] = limit_resp
+
+            if "s" in limit_resp and limit_resp["s"] == "error":
+                raise HTTPException(
+                    status_code=400,
+                    detail=limit_resp.get("message", "Fyers rejected the Limit order")
+                )
+
 
         return {"status": "ok", "details": response}
 
