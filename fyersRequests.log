@@ -9,3 +9,5 @@
 {"level":"DEBUG","location":"[post_call:81] fyersModel","message":{"Status Code":200,"API":"/orders/sync"},"timestamp":"2025-07-08 11:04:21,564+0530","service":"FyersAPIRequest"}
 {"level":"DEBUG","location":"[post_call:81] fyersModel","message":{"Status Code":400,"API":"/orders/sync"},"timestamp":"2025-07-08 13:40:34,435+0530","service":"FyersAPIRequest"}
 {"level":"DEBUG","location":"[post_call:81] fyersModel","message":{"Status Code":200,"API":"/orders/sync"},"timestamp":"2025-07-08 14:22:27,310+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:140] fyersModel","message":{"Status Code":200,"API":"/history"},"timestamp":"2025-07-09 11:11:13,165+0530","service":"FyersAPIRequest","taskName":"Task-10"}
+{"level":"DEBUG","location":"[get_call:140] fyersModel","message":{"Status Code":422,"API":"/history"},"timestamp":"2025-07-09 11:13:12,209+0530","service":"FyersAPIRequest","taskName":"Task-12"}

@@ -19,3 +19,6 @@ fastapi==0.111.0
 uvicorn==0.34.3
 fyers-apiv3
 python-dateutil==2.9.0.post0
+python-dotenv
+
+

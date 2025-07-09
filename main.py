@@ -49,6 +49,13 @@ class ChartinkAlert(BaseModel):
     enable_stoplimit: bool = True
     enable_lockprofit: bool = False
 
+def check_fyers_status():
+    try:
+        response = fyers.get_profile()
+        return response
+    except Exception as e:
+        return {"status": "error", "details": str(e)}
+
 # ------------------ TEST ROUTES ------------------
 @app.get("/ping")
 async def ping():
@@ -70,6 +77,9 @@ async def test_candle(symbol: str = "NSE:RELIANCE-EQ"):
 async def ltp(symbol: str = "NSE:RELIANCE-EQ"):
     return get_ltp(symbol)
 
+@app.get("/status")
+async def status():
+    return check_fyers_status()
 
 # ------------------ MAIN ROUTE ------------------
 @app.post("/api/chartink-alert")
@@ -110,8 +120,7 @@ async def receive_alert(alert: ChartinkAlert):
 
         candles = get_candles(symbol)
 
-        if len(candles) < 2:
-            raise HTTPException(status_code=400, detail="Not enough candle data")
+        # return {'data': candles}
 
         [_, o1, h1, l1, c1, _] = candles[0]
         [_, o2, h2, l2, c2, _] = candles[1]

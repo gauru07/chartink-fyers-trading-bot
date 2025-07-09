@@ -1,12 +1,13 @@
 from fyers_apiv3 import fyersModel
 import os
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
 
 # Load access token
 # with open("access_token.txt", "r") as f:
 #     access_token = f.read().strip()
-
-import os
+from dotenv import load_dotenv
+load_dotenv()
 access_token = os.getenv("FYERS_ACCESS_TOKEN")
 
 client_id = "I2YG2SAKG1-100"
@@ -48,22 +49,27 @@ def get_ltp(symbol: str):
     except Exception as e:
         return {"error": str(e)}
 
-# ✅ Get Candle Data using OHLC from Depth API
+
 def get_candles(symbol: str):
     try:
-        response = fyers.depth({"symbol": symbol, "ohlcv_flag": "1"})
+        end_time = datetime.now()
+        start_time = end_time - timedelta(minutes=10)  # last 10 min (to get at least 2 candles)
+
+        response = fyers.history({
+            "symbol": symbol,
+            "resolution": "1",  # 1-minute candle
+            "date_format": "1",
+            "range_from": start_time.strftime("%Y-%m-%d"),
+            "range_to": end_time.strftime("%Y-%m-%d"),
+            "cont_flag": "1"
+        })
+
         if response.get("s") != "ok":
+            print("⚠️ Fyers History Error:", response)
             return []
 
-        candle = response["d"].get(symbol, {})
-        return [[
-            "",  # No timestamp
-            candle.get("o"),  # open
-            candle.get("h"),  # high
-            candle.get("l"),  # low
-            candle.get("c"),  # close
-            candle.get("v")   # volume
-        ]]
+        candles = response["candles"]
+        return candles[-2:]  # return last 2 candles
     except Exception as e:
-        print("⚠️ Error fetching candle:", e)
+        print("⚠️ Error fetching candles:", str(e))
         return []

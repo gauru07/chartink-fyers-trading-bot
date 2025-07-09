@@ -149,6 +149,26 @@ def main():
         print("❌ Failed to generate access token. Check response:")
         print(json.dumps(response, indent=2))
 
+    import os
+
+def update_env_var(key, value, env_path=".env"):
+    with open(env_path, "r") as f:
+        lines = f.readlines()
+    with open(env_path, "w") as f:
+        found = False
+        for line in lines:
+            if line.startswith(f"{key}="):
+                f.write(f"{key}={value}\n")
+                found = True
+            else:
+                f.write(line)
+        if not found:
+            f.write(f"{key}={value}\n")
+
+# After you get final_access_token:
+update_env_var("FYERS_ACCESS_TOKEN", final_access_token)
+
+
 
     
 
