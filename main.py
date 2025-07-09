@@ -114,8 +114,19 @@ async def receive_alert(alert: ChartinkAlert):
         side = "long"
 
         # Step 4: Candle logic
-        symbol = f"NSE:{symbol_raw.upper()}"
+        # symbol = f"NSE:{symbol_raw.upper()}"
+        # candles = get_candles(symbol)
+
+        # Step 4: Candle logic
+        symbol = f"NSE:{symbol_raw.upper()}-EQ"
         candles = get_candles(symbol)
+
+        if not candles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Fyers rejected symbol '{symbol}'. It may not be supported."
+            )
+
 
         [_, o1, h1, l1, c1, _] = candles[0]
         [_, o2, h2, l2, c2, _] = candles[1]
