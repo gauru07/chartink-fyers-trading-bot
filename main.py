@@ -40,7 +40,7 @@ class ChartinkAlert(BaseModel):
     triggered_at: str = None
     type: str = None
     testLogicOnly: bool = False
-    capital: float = 100000
+    capital: float = 1000
     buffer: float = 0.09
     risk: float = 0.01
     risk_reward: float = 1.5
@@ -100,7 +100,7 @@ async def receive_alert(alert: ChartinkAlert):
 
         # Step 3: Configurable Settings
         test_logic = data.get("testLogicOnly", False)
-        capital = float(data.get("capital", 100000))
+        capital = float(data.get("capital", 1000))
         buffer_percent = float(data.get("buffer", 0.09))
         risk_percent = float(data.get("risk", 0.01))
         risk_reward = float(data.get("risk_reward", 1.5))
@@ -154,6 +154,7 @@ async def receive_alert(alert: ChartinkAlert):
         # Step 6: Risk and Quantity
         risk_per_trade = capital * risk_percent
         qty = max(1, int(risk_per_trade / abs(entry_price - stoploss))) * lot_size
+        qty = 1
 
         response = {}
 
