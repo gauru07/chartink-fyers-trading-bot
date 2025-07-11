@@ -86,49 +86,27 @@ async def receive_alert(alert: ChartinkAlert):
     data = alert.dict()
     print("🔔 Received raw payload:", data)
 
-    is_chartink = "chartink" in (data.get("webhook_url") or "")
-
     try:
-        # Step 1: Extract base symbol and price
+        # Step 1: Extract and sanitize symbol/price
         symbol_raw = (data.get("stocks") or "RELIANCE").split(",")[0].strip()
         price = float((data.get("trigger_prices") or "1000").split(",")[0].strip())
-
-        # Step 2: Robust timestamp parsing
         triggered_at = data.get("triggered_at") or ""
         timestamp = parser.parse(triggered_at) if triggered_at else datetime.utcnow()
         print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
 
-        # Step 3: Configurable Settings
-        test_logic = data.get("testLogicOnly", False)
+        # Step 2: Settings
         capital = float(data.get("capital", 1000))
         buffer_percent = float(data.get("buffer", 0.09))
         risk_percent = float(data.get("risk", 0.01))
         risk_reward = float(data.get("risk_reward", 1.5))
         lot_size = int(data.get("lot_size", 1))
+        side = "long"  # TODO: Allow for "short" via payload if needed
 
-        enable_instant = data.get("enable_instant", True if is_chartink else False)
-        enable_stoplimit = data.get("enable_stoplimit", True if is_chartink else False)
-        enable_lockprofit = data.get("enable_lockprofit", False)
-
-        order_type = 2 if (data.get("type") or "Market").lower() == "market" else 1
-        side = "long"
-
-        # Step 4: Candle logic
-        # symbol = f"NSE:{symbol_raw.upper()}"
-        # candles = get_candles(symbol)
-
-        # Step 4: Candle logic
-        # symbol = f"NSE:{symbol_raw.upper()}-EQ"
-        symbol = f"NSE:{symbol_raw.upper()}-EQ"  # Start with -EQ as default
+        symbol = f"NSE:{symbol_raw.upper()}-EQ"
 
         candles = get_candles(symbol)
-
-        if not candles:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Fyers rejected symbol '{symbol}'. It may not be supported."
-            )
-
+        if not candles or len(candles) < 2:
+            raise HTTPException(status_code=400, detail=f"Fyers rejected symbol '{symbol}'. It may not be supported or not enough data.")
 
         [_, o1, h1, l1, c1, _] = candles[0]
         [_, o2, h2, l2, c2, _] = candles[1]
@@ -136,77 +114,54 @@ async def receive_alert(alert: ChartinkAlert):
         if side == "long":
             buffer_val = (h1 - o1) * buffer_percent
             entry_price = h1 + buffer_val
-            stoploss = h1 if order_type == 2 else c2
+            stoploss = h1
             target = entry_price + (entry_price - stoploss) * risk_reward
         else:
             buffer_val = (o1 - l1) * buffer_percent
             entry_price = l1 - buffer_val
-            stoploss = l1 if order_type == 2 else c2
+            stoploss = l1
             target = entry_price - (stoploss - entry_price) * risk_reward
 
-        # Step 5: Prevent invalid risk setups
+        # Position Sizing
         if abs(entry_price - stoploss) < 0.01:
-            raise HTTPException(
-                status_code=400,
-                detail="Entry and Stoploss too close or same. Risk too small for a valid trade."
-            )
-
-        # Step 6: Risk and Quantity
+            raise HTTPException(status_code=400, detail="Entry and Stoploss too close or same. Risk too small for a valid trade.")
         risk_per_trade = capital * risk_percent
         qty = max(1, int(risk_per_trade / abs(entry_price - stoploss))) * lot_size
-        qty = 1
 
-        response = {}
+        # Place only one Limit order
+        limit_payload = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": 1 if side == "long" else -1,
+            "type": 1,  # Limit
+            "productType": "INTRADAY",
+            "validity": "DAY",
+            "offlineOrder": False,
+            "limitPrice": round(entry_price, 2),
+            "stopLoss": round(stoploss, 2),
+            "takeProfit": round(target, 2)
+        }
 
-        # Step 7: Market Order (optional)
-        if enable_instant:
-            market_payload = {
-                "symbol": symbol,
-                "qty": qty,
-                "side": 1 if side == "long" else -1,
-                "type": 2,  # ✅ Market
-                "productType": "INTRADAY",
-                "validity": "DAY",
-                "offlineOrder": False
-            }
-        market_resp = place_order(market_payload)
-        print("✅ Market Order Placed:", market_payload)
-        response["market_order"] = market_resp
+        limit_resp = place_order(limit_payload)
+        print("✅ Limit Order Placed:", limit_payload)
 
-        if "s" in market_resp and market_resp["s"] == "error":
-            raise HTTPException(
-                status_code=400,
-                detail=market_resp.get("message", "Fyers rejected the Market order")
-            )
+        # Optionally: Save to positions.json for monitoring
+        position_data = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": side,
+            "entry": round(entry_price, 2),
+            "stoploss": round(stoploss, 2),
+            "target": round(target, 2)
+        }
+        try:
+            import json
+            with open("positions.json", "w") as f:
+                json.dump([position_data], f, indent=2)
+        except Exception as e:
+            print("❗ positions.json save failed:", e)
 
-
-        # Step 8: StopLimit Order (optional)
-        # Step 6: Limit Order for Entry with SL/TP
-        if enable_stoplimit:
-            limit_payload = {
-                "symbol": symbol,
-                "qty": qty,
-                "side": 1 if side == "long" else -1,
-                "type": 1,  # ✅ Limit Order
-                "productType": "INTRADAY",
-                "validity": "DAY",
-                "offlineOrder": False,
-                "limitPrice": round(entry_price, 2),      # 🎯 Entry point
-                "stopLoss": round(stoploss, 2),           # 🔻 SL
-                "takeProfit": round(target, 2)            # 🔺 Target
-            }
-            limit_resp = place_order(limit_payload)
-            print("✅ Limit Order Placed:", limit_payload)
-            response["limit_order"] = limit_resp
-
-            if "s" in limit_resp and limit_resp["s"] == "error":
-                raise HTTPException(
-                    status_code=400,
-                    detail=limit_resp.get("message", "Fyers rejected the Limit order")
-                )
-
-
-        return {"status": "ok", "details": response}
+        return {"status": "ok", "order_response": limit_resp, "details": position_data}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")

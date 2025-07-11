@@ -2,10 +2,10 @@ import json
 import requests
 import pyotp
 import sys
-import time as tm
 from urllib.parse import urlparse, parse_qs
 from fyers_apiv3 import fyersModel
 import credentials as cr
+import os
 
 # Configuration
 APP_ID = cr.APP_ID
@@ -29,13 +29,12 @@ URL_TOKEN = BASE_URL_2 + "/token"
 SUCCESS = 1
 ERROR = -1
 
-
+# ——— Utility Functions ——— #
 def send_login_otp(fy_id, app_id):
     res = requests.post(URL_SEND_LOGIN_OTP, json={"fy_id": fy_id, "app_id": app_id})
     if res.status_code != 200:
         return [ERROR, res.text]
     return [SUCCESS, res.json()["request_key"]]
-
 
 def verify_totp(request_key, totp):
     res = requests.post(URL_VERIFY_TOTP, json={"request_key": request_key, "otp": totp})
@@ -43,22 +42,16 @@ def verify_totp(request_key, totp):
         return [ERROR, res.text]
     return [SUCCESS, res.json()["request_key"]]
 
-
 def generate_totp(secret):
     return pyotp.TOTP(secret).now()
-
 
 def verify_pin(request_key, pin):
     payload = {"request_key": request_key, "identity_type": "pin", "identifier": pin}
     res = requests.post(URL_VERIFY_PIN, json=payload)
+    print(res.json())
     if res.status_code != 200:
         return [ERROR, res.text]
     return [SUCCESS, res.json()["data"]["access_token"]]
-
-
-secret = "P2KHDARZHB5WFHZRT632USP754JHVQIT"  # Replace with your secret
-totp = pyotp.TOTP(secret)
-print("Generated TOTP:", totp.now())
 
 def get_auth_code(fy_id, app_id, redirect_uri, app_type, access_token):
     payload = {
@@ -89,9 +82,29 @@ def get_auth_code(fy_id, app_id, redirect_uri, app_type, access_token):
 
     return [SUCCESS, auth_code]
 
+def update_env_var(key, value, env_path=".env"):
+    if not os.path.exists(env_path):
+        with open(env_path, "w") as f:
+            f.write(f"{key}={value}\n")
+        return
 
+    with open(env_path, "r") as f:
+        lines = f.readlines()
+    with open(env_path, "w") as f:
+        found = False
+        for line in lines:
+            if line.startswith(f"{key}="):
+                f.write(f"{key}={value}\n")
+                found = True
+            else:
+                f.write(line)
+        if not found:
+            f.write(f"{key}={value}\n")
+
+
+# ——— Main Flow ——— #
 def main():
-    print(f"\n🌐 URL to activate app (optional): https://api-t1.fyers.in/api/v3/generate-authcode?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&state=None\n")
+    print(f"\n🌐 Activate manually (optional): https://api-t1.fyers.in/api/v3/generate-authcode?client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&response_type=code&state=None\n")
 
     print("🔐 Sending login OTP...")
     send_otp = send_login_otp(FY_ID, APP_ID_TYPE)
@@ -122,10 +135,8 @@ def main():
         sys.exit()
 
     print("✅ Auth Code:", token_response[1])
-    print("🎉 Successfully generated auth code. You can now use it to generate your access token.")
 
-
-    # Final Step - Generate access token using the auth code
+    # Final Step - Generate Access Token
     session = fyersModel.SessionModel(
         client_id=CLIENT_ID,
         secret_key=SECRET_KEY,
@@ -133,47 +144,26 @@ def main():
         response_type="code",
         grant_type="authorization_code"
     )
-
-    session.set_token(token_response[1])  # set auth_code
+    session.set_token(token_response[1])
     response = session.generate_token()
 
     if response["s"].lower() == "ok":
-        access_token = response["access_token"]
-        print("🔐 Final Access Token:", access_token)
-        print("✅ You are now fully authenticated.")
+        final_access_token = response["access_token"]
+        print("🔐 Final Access Token:", final_access_token)
+
+        # Save to .txt
         with open("access_token.txt", "w") as f:
-            f.write(access_token)
+            f.write(final_access_token)
         print("✅ Access token saved to access_token.txt")
 
+        # Update to .env
+        update_env_var("FYERS_ACCESS_TOKEN", final_access_token)
+        print("✅ Access token saved to .env file (FYERS_ACCESS_TOKEN)")
+
     else:
-        print("❌ Failed to generate access token. Check response:")
+        print("❌ Failed to generate access token:")
         print(json.dumps(response, indent=2))
 
-    import os
-
-def update_env_var(key, value, env_path=".env"):
-    with open(env_path, "r") as f:
-        lines = f.readlines()
-    with open(env_path, "w") as f:
-        found = False
-        for line in lines:
-            if line.startswith(f"{key}="):
-                f.write(f"{key}={value}\n")
-                found = True
-            else:
-                f.write(line)
-        if not found:
-            f.write(f"{key}={value}\n")
-
-# After you get final_access_token:
-update_env_var("FYERS_ACCESS_TOKEN", final_access_token)
-
-
-
-    
-
- 
 
 if __name__ == "__main__":
     main()
-
