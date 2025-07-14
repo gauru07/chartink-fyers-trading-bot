@@ -163,3 +163,4 @@
 {"level":"DEBUG","location":"[get_call:140] fyersModel","message":{"Status Code":200,"API":"/profile"},"timestamp":"2025-07-14 11:00:06,789+0530","service":"FyersAPIRequest","taskName":"Task-1"}
 {"level":"DEBUG","location":"[get_call:140] fyersModel","message":{"Status Code":200,"API":"/profile"},"timestamp":"2025-07-14 11:05:39,484+0530","service":"FyersAPIRequest","taskName":"Task-1"}
 {"level":"DEBUG","location":"[get_call:140] fyersModel","message":{"Status Code":200,"API":"/history"},"timestamp":"2025-07-14 11:05:45,685+0530","service":"FyersAPIRequest","taskName":"Task-4"}
+{"level":"DEBUG","location":"[get_call:140] fyersModel","message":{"Status Code":200,"API":"/profile"},"timestamp":"2025-07-14 14:41:40,520+0530","service":"FyersAPIRequest","taskName":"Task-1"}

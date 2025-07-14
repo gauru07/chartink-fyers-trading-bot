@@ -7,12 +7,10 @@ from dotenv import load_dotenv
 from dateutil import parser
 from fyers_client import place_order, get_ltp, get_candles
 
-# Load .env
+# Load environment variables
 load_dotenv()
 
-client_id = os.getenv("CLIENT_ID")
-access_token = os.getenv("FYERS_ACCESS_TOKEN")
-
+# Initialize FastAPI app
 app = FastAPI()
 
 app.add_middleware(
@@ -27,7 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ------------------ PAYLOAD MODEL ------------------
+# Chartink Alert Payload Model
 class ChartinkAlert(BaseModel):
     webhook_url: str = None
     stocks: str = None
@@ -42,10 +40,9 @@ class ChartinkAlert(BaseModel):
     lot_size: int = 1
     enable_instant: bool = True
     enable_stoplimit: bool = True
-    enable_lockprofit: bool = False  # Optional, future use
+    enable_lockprofit: bool = False
 
 
-# ------------------ API ROUTES ------------------
 @app.post("/api/chartink-alert")
 async def receive_alert(alert: ChartinkAlert):
     data = alert.dict()
@@ -57,18 +54,17 @@ async def receive_alert(alert: ChartinkAlert):
         timestamp = parser.parse(data.get("triggered_at") or "") if data.get("triggered_at") else datetime.utcnow()
         print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
 
-        # Settings from payload
         capital = float(data.get("capital", 1000))
         buffer_percent = float(data.get("buffer", 0.09))
         risk_percent = float(data.get("risk", 0.01))
         risk_reward = float(data.get("risk_reward", 1.5))
         lot_size = int(data.get("lot_size", 1))
-        side = "long"  # Default, can enhance later
+        side = "long"
 
         symbol = f"NSE:{symbol_raw.upper()}-EQ"
         candles = get_candles(symbol)
 
-        if not candles or len(candles) < 2:
+        if not candles or len(candles) < 1:
             raise HTTPException(status_code=400, detail=f"Fyers rejected symbol '{symbol}' or insufficient candle data.")
 
         [_, o1, h1, l1, c1, _] = candles[0]
@@ -84,15 +80,14 @@ async def receive_alert(alert: ChartinkAlert):
         risk_per_trade = capital * risk_percent
         qty = max(1, int(risk_per_trade / abs(entry_price - stoploss))) * lot_size
 
-        # ✅ Dynamic Order Type Logic
+        # Determine Order Type:
         if data.get("enable_stoplimit", False):
-            order_type = 4  # Stop Limit
+            order_type = 4  # Stop Limit Order
         elif (data.get("type") or "").lower() == "market":
             order_type = 2  # Market Order
         else:
-            order_type = 1  # Limit Order (default)
+            order_type = 1  # Default Limit Order
 
-        # Payload Construction
         order_payload = {
             "symbol": symbol,
             "qty": qty,
@@ -101,37 +96,26 @@ async def receive_alert(alert: ChartinkAlert):
             "productType": "INTRADAY",
             "validity": "DAY",
             "offlineOrder": False,
-            "limitPrice": round(entry_price, 2),
             "stopLoss": round(stoploss, 2),
             "takeProfit": round(target, 2)
         }
-        order_payload = {
-                "symbol": symbol,
-                "qty": qty,
-                "side": 1 if side == "long" else -1,
-                "type": 4,  # Stop Limit
-                "productType": "INTRADAY",
-                "validity": "DAY",
-                "offlineOrder": False,
-                "stopPrice": round(stop_trigger, 2),  # ✅ Proper stopPrice key (trigger)
-                "limitPrice": round(entry_price, 2),  # ✅ Actual execution price
-                "takeProfit": round(target, 2)
-            }
-
 
         if order_type == 2:
-            # Market Order doesn't use limitPrice, remove it
-            del order_payload["limitPrice"]
+            # Market Order – no price needed
+            pass
+        elif order_type == 4:
+            # Stop Limit Order – limitPrice required
+            order_payload["limitPrice"] = round(entry_price, 2)
+            order_payload["stopPrice"] = round(stoploss + 0.05, 2)  # Required by Fyers API
+        else:
+            # Limit Order
+            order_payload["limitPrice"] = round(entry_price, 2)
 
         response = place_order(order_payload)
-        print(f"✅ Order Placed [{order_type}]:", order_payload)
+        print(f"📦 Order Placed [{order_type}]:", order_payload)
         print("📩 Fyers Response:", response)
 
-        if isinstance(response, dict) and response.get("s") == "error":
-            raise HTTPException(status_code=400, detail=f"Fyers Error: {response.get('message', 'Unknown error')}")
-
-
-        # Save to positions.json for monitoring
+        # Save position to file
         position_data = {
             "symbol": symbol,
             "qty": qty,
@@ -151,7 +135,7 @@ async def receive_alert(alert: ChartinkAlert):
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 
-# ------------------ SYSTEM TEST ROUTES ------------------
+# System Health Endpoints:
 @app.get("/ping")
 async def ping():
     return {"status": "alive"}
@@ -161,7 +145,6 @@ async def test_candle(symbol: str = "NSE:RELIANCE-EQ"):
     candles = get_candles(symbol)
     if not candles:
         return {"symbol": symbol, "candle_count": 0, "sample": "No data"}
-
     return {
         "symbol": symbol,
         "candle_count": len(candles),
