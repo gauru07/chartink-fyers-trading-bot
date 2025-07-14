@@ -105,6 +105,19 @@ async def receive_alert(alert: ChartinkAlert):
             "stopLoss": round(stoploss, 2),
             "takeProfit": round(target, 2)
         }
+        order_payload = {
+                "symbol": symbol,
+                "qty": qty,
+                "side": 1 if side == "long" else -1,
+                "type": 4,  # Stop Limit
+                "productType": "INTRADAY",
+                "validity": "DAY",
+                "offlineOrder": False,
+                "stopPrice": round(stop_trigger, 2),  # ✅ Proper stopPrice key (trigger)
+                "limitPrice": round(entry_price, 2),  # ✅ Actual execution price
+                "takeProfit": round(target, 2)
+            }
+
 
         if order_type == 2:
             # Market Order doesn't use limitPrice, remove it
