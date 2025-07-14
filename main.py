@@ -112,6 +112,11 @@ async def receive_alert(alert: ChartinkAlert):
 
         response = place_order(order_payload)
         print(f"✅ Order Placed [{order_type}]:", order_payload)
+        print("📩 Fyers Response:", response)
+
+        if isinstance(response, dict) and response.get("s") == "error":
+            raise HTTPException(status_code=400, detail=f"Fyers Error: {response.get('message', 'Unknown error')}")
+
 
         # Save to positions.json for monitoring
         position_data = {
