@@ -1,7 +1,9 @@
 from fyers_apiv3 import fyersModel
-from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+
+load_dotenv()
 
 
 with open("access_token.txt", "r") as f:
@@ -10,6 +12,13 @@ with open("access_token.txt", "r") as f:
 
 client_id = "I2YG2SAKG1-100"
 fyers = fyersModel.FyersModel(client_id=client_id, token=token, is_async=False)
+
+# Global fyers object (singleton)
+fyers = fyersModel.FyersModel(
+    client_id=client_id,
+    token=token,
+    is_async=False
+)
 
 def place_order(order_payload):
     print("📦 Sending order to Fyers:", order_payload)
@@ -35,7 +44,17 @@ def get_ltp(symbol: str):
 
 
 profile = fyers.get_profile()
-print("DEBUG: Fyers get_profile response:", profile)
+# print("DEBUG: Fyers get_profile response:", profile)
+
+def get_orderbook():
+    fyers = fyersModel.FyersModel(
+        client_id=os.getenv("FYERS_CLIENT_ID"),
+        token=os.getenv("FYERS_ACCESS_TOKEN"),
+        is_async=False,
+        log_path=""
+    )
+    return fyers.orderbook()
+
 
 def get_candles(symbol):
     now = datetime.now()
