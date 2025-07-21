@@ -6,26 +6,22 @@ import os
 from dotenv import load_dotenv
 from dateutil import parser
 from fyers_client import place_order, get_ltp, get_candles
+import json
 
-# Load environment variables
+# Load .env variables
 load_dotenv()
 
-# Initialize FastAPI app
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "*",
-        "https://chartink-fyers-trading-bot-frontend.onrender.com",
-        "http://localhost:5173"
-    ],
+    allow_origins=["*", "https://chartink-fyers-trading-bot-frontend.onrender.com", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Chartink Alert Payload Model
+# Updated model
 class ChartinkAlert(BaseModel):
     webhook_url: str = None
     stocks: str = None
@@ -40,7 +36,18 @@ class ChartinkAlert(BaseModel):
     lot_size: int = 1
     enable_instant: bool = True
     enable_stoplimit: bool = True
-    enable_lockprofit: bool = False
+
+    # Lock & Trail for Instant
+    lock_profit_trigger_instant: float = None
+    lock_profit_percent_instant: float = None
+    increment_step_instant: float = None
+    trail_profit_percent_instant: float = None
+
+    # Lock & Trail for StopLimit
+    lock_profit_trigger_stoplimit: float = None
+    lock_profit_percent_stoplimit: float = None
+    increment_step_stoplimit: float = None
+    trail_profit_percent_stoplimit: float = None
 
 
 @app.post("/api/chartink-alert")
@@ -52,7 +59,6 @@ async def receive_alert(alert: ChartinkAlert):
         symbol_raw = (data.get("stocks") or "RELIANCE").split(",")[0].strip()
         price = float((data.get("trigger_prices") or "1000").split(",")[0].strip())
         timestamp = parser.parse(data.get("triggered_at") or "") if data.get("triggered_at") else datetime.utcnow()
-        print(f"✅ Parsed: Symbol={symbol_raw}, Price={price}, Time={timestamp.time()}")
 
         capital = float(data.get("capital", 1000))
         buffer_percent = float(data.get("buffer", 0.09))
@@ -80,13 +86,7 @@ async def receive_alert(alert: ChartinkAlert):
         risk_per_trade = capital * risk_percent
         qty = max(1, int(risk_per_trade / abs(entry_price - stoploss))) * lot_size
 
-        # Determine Order Type:
-        if data.get("enable_stoplimit", False):
-            order_type = 4  # Stop Limit Order
-        elif (data.get("type") or "").lower() == "market":
-            order_type = 2  # Market Order
-        else:
-            order_type = 1  # Default Limit Order
+        order_type = 4 if data.get("enable_stoplimit", False) else 2 if (data.get("type") or "").lower() == "market" else 1
 
         order_payload = {
             "symbol": symbol,
@@ -100,32 +100,50 @@ async def receive_alert(alert: ChartinkAlert):
             "takeProfit": round(target, 2)
         }
 
-        if order_type == 2:
-            # Market Order – no price needed
-            pass
-        elif order_type == 4:
-            # Stop Limit Order – limitPrice required
+        if order_type == 4:  # Stop Limit
             order_payload["limitPrice"] = round(entry_price, 2)
-            order_payload["stopPrice"] = round(stoploss + 0.05, 2)  # Required by Fyers API
-        else:
-            # Limit Order
+            stop_price = max(round(stoploss + 0.05, 2), round(entry_price - 0.05, 2))
+            if stop_price <= 0.01:
+                raise HTTPException(status_code=400, detail="stopPrice too close to zero. Order invalid.")
+            order_payload["stopPrice"] = stop_price
+
+        elif order_type == 1:  # Limit
             order_payload["limitPrice"] = round(entry_price, 2)
+
+        # Simulated logic: You can route lock/trail logic based on order type
+        locktrail_info = {}
+        if order_type == 2:  # Instant
+            locktrail_info = {
+                "lock_trigger": data.get("lock_profit_trigger_instant"),
+                "lock_percent": data.get("lock_profit_percent_instant"),
+                "trail_step": data.get("increment_step_instant"),
+                "trail_percent": data.get("trail_profit_percent_instant"),
+            }
+        elif order_type == 4:  # StopLimit
+            locktrail_info = {
+                "lock_trigger": data.get("lock_profit_trigger_stoplimit"),
+                "lock_percent": data.get("lock_profit_percent_stoplimit"),
+                "trail_step": data.get("increment_step_stoplimit"),
+                "trail_percent": data.get("trail_profit_percent_stoplimit"),
+            }
+
+        # 🔄 Add to order or tracking system as needed
+        print("📊 Lock/Trail Params Used:", locktrail_info)
 
         response = place_order(order_payload)
         print(f"📦 Order Placed [{order_type}]:", order_payload)
         print("📩 Fyers Response:", response)
 
-        # Save position to file
         position_data = {
             "symbol": symbol,
             "qty": qty,
             "side": side,
             "entry": round(entry_price, 2),
             "stoploss": round(stoploss, 2),
-            "target": round(target, 2)
+            "target": round(target, 2),
+            "locktrail": locktrail_info
         }
 
-        import json
         with open("positions.json", "w") as f:
             json.dump([position_data], f, indent=2)
 
@@ -135,7 +153,6 @@ async def receive_alert(alert: ChartinkAlert):
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 
-# System Health Endpoints:
 @app.get("/ping")
 async def ping():
     return {"status": "alive"}
@@ -143,13 +160,7 @@ async def ping():
 @app.get("/test-candle")
 async def test_candle(symbol: str = "NSE:RELIANCE-EQ"):
     candles = get_candles(symbol)
-    if not candles:
-        return {"symbol": symbol, "candle_count": 0, "sample": "No data"}
-    return {
-        "symbol": symbol,
-        "candle_count": len(candles),
-        "sample": {"first": candles[0], "last": candles[-1]},
-    }
+    return {"symbol": symbol, "candle_count": len(candles or []), "sample": {"first": candles[0], "last": candles[-1]} if candles else "No data"}
 
 @app.get("/ltp")
 async def ltp(symbol: str = "NSE:RELIANCE-EQ"):
