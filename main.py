@@ -153,6 +153,7 @@ async def receive_alert(alert: ChartinkAlert):
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 
+
 @app.get("/ping")
 async def ping():
     return {"status": "alive"}
@@ -165,3 +166,5 @@ async def test_candle(symbol: str = "NSE:RELIANCE-EQ"):
 @app.get("/ltp")
 async def ltp(symbol: str = "NSE:RELIANCE-EQ"):
     return get_ltp(symbol)
+
+#chnages
